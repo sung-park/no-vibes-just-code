@@ -112,17 +112,11 @@
 
   // ── Scan Badge (non-blocked elements) ───────────────────────────────────────
 
-  function applyScannedBadge(element, ahi, ollamaUsed, pre, ollamaAttempted) {
-    const badge = document.createElement('span');
-    badge.className = 'nvjc-scan-badge';
-
-    const level = ahi >= 50 ? 'warn' : 'ok';
-    badge.classList.add(`nvjc-badge-${level}`);
-
+  function renderBadge(badge, ahi, ollamaUsed, pre, ollamaAttempted) {
     // 세 가지 상태:
     //   🔍 = Ollama 호출 성공
     //   ⚡ = Ollama 호출 시도했지만 실패 (CORS/연결 오류)
-    //   ·  = pre 낮아서 Ollama 스킵 (기술 문서 등)
+    //   ·  = pre 낮아서 Ollama 스킵 (기술 문서 등) / 대기 중
     let icon, titleDetail;
     if (ollamaUsed) {
       icon        = '🔍';
@@ -135,10 +129,18 @@
       titleDetail = `기술 문서로 판단, LLM 스킵`;
     }
 
+    badge.className = 'nvjc-scan-badge';
+    badge.classList.add(ahi >= 50 ? 'nvjc-badge-warn' : 'nvjc-badge-ok');
     badge.textContent = `${icon} AHI ${ahi}`;
     badge.title = `No Vibes Just Code — ${titleDetail}\nAHI ${ahi}/100  |  pre-score: ${Math.round(pre)}`;
+  }
 
+  // applyScannedBadge: 배지를 element에 추가하고 참조를 반환 (나중에 업데이트용)
+  function applyScannedBadge(element, ahi, ollamaUsed, pre, ollamaAttempted) {
+    const badge = document.createElement('span');
+    renderBadge(badge, ahi, ollamaUsed, pre, ollamaAttempted);
     element.appendChild(badge);
+    return badge; // 반환: Ollama 결과 수신 후 업데이트에 사용
   }
 
   // ── Apply / Remove Overlay ──────────────────────────────────────────────────
@@ -199,46 +201,54 @@
       return;
     }
 
-    // Mark as pending to prevent duplicate processing
     element.dataset.nvjcProcessed = 'pending';
 
-    // ── Phase 1: Rule-based scoring ──
-    const phase1 = NVJC_SCORER.scoreRuleBased(text, element);
-
-    // ── Phase 2 gate: only call Ollama if pre-score is high enough ──
-    let phase2 = { F: 0, T_semantic: 1, reason: '' };
-    let ollamaUsed     = false;
-    let ollamaAttempted = false;
-    const preThreshold = settings ? settings.preThreshold : NVJC.DEFAULTS.PRE_THRESHOLD;
-
-    if (phase1.pre >= preThreshold) {
-      ollamaAttempted = true;
-      try {
-        const result = await chrome.runtime.sendMessage({
-          action: NVJC.ACTIONS.ANALYZE_TEXT,
-          text,
-        });
-        if (result && !result.error) {
-          phase2     = result;
-          ollamaUsed = true;
-        }
-      } catch (_err) {
-        // Extension context invalidated or Ollama unreachable — continue with phase1 only
-      }
-    }
-
-    // ── AHI Aggregation ──
+    // ── Phase 1: Rule-based scoring (synchronous, <1ms) ──
+    const phase1  = NVJC_SCORER.scoreRuleBased(text, element);
     const weights = settings ? settings.weights : NVJC.DEFAULTS.WEIGHTS;
-    const { ahi, breakdown } = NVJC_SCORER.aggregateAHI(phase1, phase2, weights);
+    const blockThreshold = settings ? settings.blockThreshold : NVJC.DEFAULTS.BLOCK_THRESHOLD;
+    const preThreshold   = settings ? settings.preThreshold  : NVJC.DEFAULTS.PRE_THRESHOLD;
+
+    // Phase 1 result with safe Ollama defaults (F=0, T_semantic=1 = 비호들갑 방향)
+    const phase2Default = { F: 0, T_semantic: 1, reason: '' };
+    const { ahi: ahiP1 } = NVJC_SCORER.aggregateAHI(phase1, phase2Default, weights);
 
     element.dataset.nvjcProcessed = 'done';
-    element.dataset.nvjcAhi       = String(ahi);
+    element.dataset.nvjcAhi       = String(ahiP1);
 
-    const blockThreshold = settings ? settings.blockThreshold : NVJC.DEFAULTS.BLOCK_THRESHOLD;
+    // ── 즉시 Phase 1 배지 표시 (Ollama 대기 없이 바로 나타남) ──
+    // Phase 1만으로는 F=0이라 거의 차단 안 됨 → 항상 배지 먼저 표시
+    const badge = applyScannedBadge(element, ahiP1, false, phase1.pre, false);
+
+    // ── Phase 2 gate: Ollama 호출 ──
+    if (phase1.pre < preThreshold) return; // 기술 문서 등, Ollama 스킵
+
+    let phase2 = phase2Default;
+    let ollamaUsed = false;
+    try {
+      const result = await chrome.runtime.sendMessage({
+        action: NVJC.ACTIONS.ANALYZE_TEXT,
+        text,
+      });
+      if (result && !result.error) {
+        phase2     = result;
+        ollamaUsed = true;
+      }
+    } catch (_err) {
+      // Extension context invalidated or Ollama unreachable
+    }
+
+    // ── Ollama 결과로 AHI 재계산 후 배지 업데이트 ──
+    const { ahi, breakdown } = NVJC_SCORER.aggregateAHI(phase1, phase2, weights);
+    element.dataset.nvjcAhi = String(ahi);
+
     if (ahi >= blockThreshold) {
+      // 배지 제거 후 오버레이로 업그레이드
+      badge.remove();
       applyOverlay(element, ahi, breakdown, phase2.reason || '');
     } else {
-      applyScannedBadge(element, ahi, ollamaUsed, phase1.pre, ollamaAttempted);
+      // 배지를 최종 AHI + Ollama 상태로 업데이트
+      renderBadge(badge, ahi, ollamaUsed, phase1.pre, /* ollamaAttempted */ true);
     }
   }
 
