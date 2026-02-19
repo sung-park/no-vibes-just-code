@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>No Vibes Just Code</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+
+  <!-- Header: logo + master toggle -->
+  <header class="header">
+    <div class="logo">
+      <span class="logo-icon">🛡</span>
+      <span class="logo-text">No Vibes Just Code</span>
+    </div>
+    <label class="toggle-switch" title="확장 프로그램 활성화/비활성화">
+      <input type="checkbox" id="enabledToggle" />
+      <span class="toggle-track">
+        <span class="toggle-thumb"></span>
+      </span>
+    </label>
+  </header>
+
+  <!-- Stats: blocked count + average AHI -->
+  <div class="stats-card">
+    <div class="stats-item">
+      <span class="stats-label">차단된 글</span>
+      <span class="stats-value" id="blockedCount">—</span>
+    </div>
+    <div class="stats-divider"></div>
+    <div class="stats-item">
+      <span class="stats-label">평균 AHI</span>
+      <span class="stats-value" id="avgAHI">—</span>
+    </div>
+  </div>
+
+  <!-- Quick settings -->
+  <div class="section">
+    <label class="field-label" for="apiUrlInput">Ollama API</label>
+    <input
+      type="text"
+      id="apiUrlInput"
+      class="field-input"
+      placeholder="http://localhost:11434"
+      spellcheck="false"
+    />
+  </div>
+
+  <div class="section">
+    <label class="field-label" for="modelInput">모델</label>
+    <input
+      type="text"
+      id="modelInput"
+      class="field-input"
+      placeholder="qwen2.5:3b"
+      spellcheck="false"
+    />
+  </div>
+
+  <!-- Ollama connection status -->
+  <div class="status-row">
+    <span class="status-dot" id="statusDot"></span>
+    <span class="status-text" id="statusText">연결 확인 중…</span>
+  </div>
+
+  <!-- Footer: link to options -->
+  <footer class="footer">
+    <button class="options-btn" id="optionsBtn">고급 설정 →</button>
+  </footer>
+
+  <script src="../shared/constants.js"></script>
+  <script src="../shared/storage.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
